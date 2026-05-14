@@ -27,6 +27,8 @@ model Rifa {
   totalNumbers Int
   createdAt    DateTime @default(now())
 
+  status String @default("open") // 👈 ESSENCIAL
+
   winnerId Int?
   winner   User? @relation("Winner", fields: [winnerId], references: [id])
 
