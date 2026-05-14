@@ -88,7 +88,6 @@ export const login = async (req, res) => {
       { expiresIn: "1d" }
     );
 
-    // 🔥 AGORA RETORNA DADOS DO USUÁRIO
     res.json({
       token,
       user: {
