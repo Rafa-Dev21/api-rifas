@@ -1,6 +1,8 @@
 import prisma from "../lib/prisma.js";
 
-// CREATE
+// ======================
+// CREATE RIFA
+// ======================
 export const createRifa = async (req, res) => {
 
   try {
@@ -28,20 +30,19 @@ export const createRifa = async (req, res) => {
         title,
         description,
         price,
-        totalNumbers
+        totalNumbers,
+        status: "open"
       }
     });
 
-    // CRIA TODOS OS NÚMEROS
+    // CRIA TICKETS
     const tickets = [];
 
     for (let i = 1; i <= totalNumbers; i++) {
-
       tickets.push({
         number: i,
         rifaId: rifa.id
       });
-
     }
 
     await prisma.ticket.createMany({
@@ -50,7 +51,9 @@ export const createRifa = async (req, res) => {
 
     res.status(201).json(rifa);
 
-  } catch {
+  } catch (error) {
+
+    console.log(error);
 
     res.status(500).json({
       error: "Erro ao criar rifa"
@@ -59,8 +62,9 @@ export const createRifa = async (req, res) => {
   }
 };
 
-
+// ======================
 // LISTAR RIFAS
+// ======================
 export const getRifas = async (req, res) => {
 
   try {
@@ -71,34 +75,27 @@ export const getRifas = async (req, res) => {
       }
     });
 
-    // FORMATA DADOS
     const formatted = rifas.map(rifa => {
 
-      // QUANTOS FORAM VENDIDOS
       const vendidos =
-        rifa.tickets.filter(
-          ticket => ticket.isSold
-        ).length;
+        rifa.tickets.filter(t => t.isSold).length;
 
-      // QUANTOS RESTAM
       const disponiveis =
         rifa.totalNumbers - vendidos;
 
       return {
         ...rifa,
-
         soldNumbers: vendidos,
-
         availableNumbers: disponiveis,
-
         isSoldOut: disponiveis <= 0
       };
-
     });
 
     res.json(formatted);
 
-  } catch {
+  } catch (error) {
+
+    console.log(error);
 
     res.status(500).json({
       error: "Erro ao buscar rifas"
@@ -107,8 +104,9 @@ export const getRifas = async (req, res) => {
   }
 };
 
-
-// VER RIFA POR ID
+// ======================
+// GET RIFA BY ID
+// ======================
 export const getRifaById = async (req, res) => {
 
   try {
@@ -116,38 +114,29 @@ export const getRifaById = async (req, res) => {
     const { id } = req.params;
 
     const rifa = await prisma.rifa.findUnique({
-      where: {
-        id: Number(id)
-      },
-
-      include: {
-        tickets: true
-      }
+      where: { id: Number(id) },
+      include: { tickets: true }
     });
 
     if (!rifa) {
-
       return res.status(404).json({
         error: "Rifa não encontrada"
       });
-
     }
 
     const vendidos =
-      rifa.tickets.filter(
-        ticket => ticket.isSold
-      ).length;
+      rifa.tickets.filter(t => t.isSold).length;
 
     res.json({
       ...rifa,
-
       soldNumbers: vendidos,
-
       availableNumbers:
         rifa.totalNumbers - vendidos
     });
 
-  } catch {
+  } catch (error) {
+
+    console.log(error);
 
     res.status(500).json({
       error: "Erro ao buscar rifa"
@@ -156,35 +145,26 @@ export const getRifaById = async (req, res) => {
   }
 };
 
-
-// ATUALIZAR
+// ======================
+// UPDATE RIFA
+// ======================
 export const updateRifa = async (req, res) => {
 
   try {
 
     const { id } = req.params;
-
-    const {
-      title,
-      description,
-      price
-    } = req.body;
+    const { title, description, price } = req.body;
 
     const rifa = await prisma.rifa.update({
-      where: {
-        id: Number(id)
-      },
-
-      data: {
-        title,
-        description,
-        price
-      }
+      where: { id: Number(id) },
+      data: { title, description, price }
     });
 
     res.json(rifa);
 
-  } catch {
+  } catch (error) {
+
+    console.log(error);
 
     res.status(500).json({
       error: "Erro ao atualizar rifa"
@@ -193,33 +173,30 @@ export const updateRifa = async (req, res) => {
   }
 };
 
-
-// DELETAR
+// ======================
+// DELETE RIFA
+// ======================
 export const deleteRifa = async (req, res) => {
 
   try {
 
     const { id } = req.params;
 
-    // DELETA TICKETS
     await prisma.ticket.deleteMany({
-      where: {
-        rifaId: Number(id)
-      }
+      where: { rifaId: Number(id) }
     });
 
-    // DELETA RIFA
     await prisma.rifa.delete({
-      where: {
-        id: Number(id)
-      }
+      where: { id: Number(id) }
     });
 
     res.json({
       message: "Rifa deletada com sucesso"
     });
 
-  } catch {
+  } catch (error) {
+
+    console.log(error);
 
     res.status(500).json({
       error: "Erro ao deletar rifa"
@@ -228,15 +205,25 @@ export const deleteRifa = async (req, res) => {
   }
 };
 
-
-// COMPRAR NÚMERO
+// ======================
+// BUY TICKET (COM SORTEIO AUTOMÁTICO)
+// ======================
 export const buyTicket = async (req, res) => {
 
   try {
 
     const { id } = req.params;
 
-    // PROCURA NÚMERO LIVRE
+    const rifa = await prisma.rifa.findUnique({
+      where: { id: Number(id) }
+    });
+
+    if (!rifa || rifa.status === "closed") {
+      return res.status(400).json({
+        error: "Rifa encerrada"
+      });
+    }
+
     const ticket = await prisma.ticket.findFirst({
       where: {
         rifaId: Number(id),
@@ -244,30 +231,39 @@ export const buyTicket = async (req, res) => {
       }
     });
 
-    // ESGOTOU
     if (!ticket) {
+      await closeAndDraw(Number(id));
 
       return res.status(400).json({
-        error: "Sem números disponíveis"
+        error: "Rifa esgotada"
       });
-
     }
 
-    // MARCA COMO VENDIDO
     const updated = await prisma.ticket.update({
-      where: {
-        id: ticket.id
-      },
-
+      where: { id: ticket.id },
       data: {
         isSold: true,
         userId: req.userId
       }
     });
 
+    // verifica se acabou depois da compra
+    const remaining = await prisma.ticket.count({
+      where: {
+        rifaId: Number(id),
+        isSold: false
+      }
+    });
+
+    if (remaining === 0) {
+      await closeAndDraw(Number(id));
+    }
+
     res.json(updated);
 
-  } catch {
+  } catch (error) {
+
+    console.log(error);
 
     res.status(500).json({
       error: "Erro ao comprar número"
@@ -276,15 +272,25 @@ export const buyTicket = async (req, res) => {
   }
 };
 
-
-// SORTEAR GANHADOR
+// ======================
+// DRAW WINNER MANUAL
+// ======================
 export const drawWinner = async (req, res) => {
 
   try {
 
     const { id } = req.params;
 
-    // PEGA APENAS VENDIDOS
+    const rifa = await prisma.rifa.findUnique({
+      where: { id: Number(id) }
+    });
+
+    if (!rifa || rifa.status === "closed") {
+      return res.status(400).json({
+        error: "Rifa já encerrada"
+      });
+    }
+
     const tickets = await prisma.ticket.findMany({
       where: {
         rifaId: Number(id),
@@ -293,36 +299,26 @@ export const drawWinner = async (req, res) => {
     });
 
     if (tickets.length === 0) {
-
       return res.status(400).json({
         error: "Sem participantes"
       });
-
     }
 
-    // ESCOLHE ALEATÓRIO
     const winner =
-      tickets[
-        Math.floor(
-          Math.random() * tickets.length
-        )
-      ];
+      tickets[Math.floor(Math.random() * tickets.length)];
 
-    // SALVA GANHADOR
-    await prisma.rifa.update({
-      where: {
-        id: Number(id)
-      },
-
+    const updated = await prisma.rifa.update({
+      where: { id: Number(id) },
       data: {
-        winnerId: winner.userId
+        winnerId: winner.userId,
+        status: "closed"
       }
     });
 
     res.json({
       message: "Sorteio realizado!",
-
-      winner
+      winner,
+      rifa: updated
     });
 
   } catch (error) {
@@ -335,3 +331,29 @@ export const drawWinner = async (req, res) => {
 
   }
 };
+
+// ======================
+// FUNÇÃO INTERNA (AUTO DRAW)
+// ======================
+async function closeAndDraw(rifaId) {
+
+  const tickets = await prisma.ticket.findMany({
+    where: {
+      rifaId,
+      isSold: true
+    }
+  });
+
+  if (tickets.length === 0) return;
+
+  const winner =
+    tickets[Math.floor(Math.random() * tickets.length)];
+
+  await prisma.rifa.update({
+    where: { id: rifaId },
+    data: {
+      winnerId: winner.userId,
+      status: "closed"
+    }
+  });
+}
