@@ -2,108 +2,241 @@ import prisma from "../lib/prisma.js";
 
 // CREATE
 export const createRifa = async (req, res) => {
-  try {
-    const { title, description, price, totalNumbers } = req.body;
 
-    if (!title || !price || !totalNumbers || totalNumbers <= 0) {
-      return res.status(400).json({ error: "Dados inválidos" });
+  try {
+
+    const {
+      title,
+      description,
+      price,
+      totalNumbers
+    } = req.body;
+
+    if (
+      !title ||
+      !price ||
+      !totalNumbers ||
+      totalNumbers <= 0
+    ) {
+      return res.status(400).json({
+        error: "Dados inválidos"
+      });
     }
 
     const rifa = await prisma.rifa.create({
-      data: { title, description, price, totalNumbers }
+      data: {
+        title,
+        description,
+        price,
+        totalNumbers
+      }
     });
 
-    
+    // CRIA TODOS OS NÚMEROS
     const tickets = [];
+
     for (let i = 1; i <= totalNumbers; i++) {
+
       tickets.push({
         number: i,
         rifaId: rifa.id
       });
+
     }
 
-    await prisma.ticket.createMany({ data: tickets });
+    await prisma.ticket.createMany({
+      data: tickets
+    });
 
     res.status(201).json(rifa);
 
   } catch {
-    res.status(500).json({ error: "Erro ao criar rifa" });
+
+    res.status(500).json({
+      error: "Erro ao criar rifa"
+    });
+
   }
 };
 
 
+// LISTAR RIFAS
 export const getRifas = async (req, res) => {
+
   try {
-    const rifas = await prisma.rifa.findMany();
-    res.json(rifas);
+
+    const rifas = await prisma.rifa.findMany({
+      include: {
+        tickets: true
+      }
+    });
+
+    // FORMATA DADOS
+    const formatted = rifas.map(rifa => {
+
+      // QUANTOS FORAM VENDIDOS
+      const vendidos =
+        rifa.tickets.filter(
+          ticket => ticket.isSold
+        ).length;
+
+      // QUANTOS RESTAM
+      const disponiveis =
+        rifa.totalNumbers - vendidos;
+
+      return {
+        ...rifa,
+
+        soldNumbers: vendidos,
+
+        availableNumbers: disponiveis,
+
+        isSoldOut: disponiveis <= 0
+      };
+
+    });
+
+    res.json(formatted);
+
   } catch {
-    res.status(500).json({ error: "Erro ao buscar rifas" });
+
+    res.status(500).json({
+      error: "Erro ao buscar rifas"
+    });
+
   }
 };
 
-// VER ID
+
+// VER RIFA POR ID
 export const getRifaById = async (req, res) => {
+
   try {
+
     const { id } = req.params;
 
     const rifa = await prisma.rifa.findUnique({
-      where: { id: Number(id) }
+      where: {
+        id: Number(id)
+      },
+
+      include: {
+        tickets: true
+      }
     });
 
     if (!rifa) {
-      return res.status(404).json({ error: "Rifa não encontrada" });
+
+      return res.status(404).json({
+        error: "Rifa não encontrada"
+      });
+
     }
 
-    res.json(rifa);
+    const vendidos =
+      rifa.tickets.filter(
+        ticket => ticket.isSold
+      ).length;
+
+    res.json({
+      ...rifa,
+
+      soldNumbers: vendidos,
+
+      availableNumbers:
+        rifa.totalNumbers - vendidos
+    });
 
   } catch {
-    res.status(500).json({ error: "Erro ao buscar rifa" });
+
+    res.status(500).json({
+      error: "Erro ao buscar rifa"
+    });
+
   }
 };
+
 
 // ATUALIZAR
 export const updateRifa = async (req, res) => {
+
   try {
+
     const { id } = req.params;
-    const { title, description, price } = req.body;
+
+    const {
+      title,
+      description,
+      price
+    } = req.body;
 
     const rifa = await prisma.rifa.update({
-      where: { id: Number(id) },
-      data: { title, description, price }
+      where: {
+        id: Number(id)
+      },
+
+      data: {
+        title,
+        description,
+        price
+      }
     });
 
     res.json(rifa);
 
   } catch {
-    res.status(500).json({ error: "Erro ao atualizar rifa" });
+
+    res.status(500).json({
+      error: "Erro ao atualizar rifa"
+    });
+
   }
 };
 
-// deletar
+
+// DELETAR
 export const deleteRifa = async (req, res) => {
+
   try {
+
     const { id } = req.params;
 
+    // DELETA TICKETS
     await prisma.ticket.deleteMany({
-      where: { rifaId: Number(id) }
+      where: {
+        rifaId: Number(id)
+      }
     });
 
+    // DELETA RIFA
     await prisma.rifa.delete({
-      where: { id: Number(id) }
+      where: {
+        id: Number(id)
+      }
     });
 
-    res.json({ message: "Rifa deletada com sucesso" });
+    res.json({
+      message: "Rifa deletada com sucesso"
+    });
 
   } catch {
-    res.status(500).json({ error: "Erro ao deletar rifa" });
+
+    res.status(500).json({
+      error: "Erro ao deletar rifa"
+    });
+
   }
 };
 
-// comprar rifa
+
+// COMPRAR NÚMERO
 export const buyTicket = async (req, res) => {
+
   try {
+
     const { id } = req.params;
 
+    // PROCURA NÚMERO LIVRE
     const ticket = await prisma.ticket.findFirst({
       where: {
         rifaId: Number(id),
@@ -111,12 +244,21 @@ export const buyTicket = async (req, res) => {
       }
     });
 
+    // ESGOTOU
     if (!ticket) {
-      return res.status(400).json({ error: "Sem números disponíveis" });
+
+      return res.status(400).json({
+        error: "Sem números disponíveis"
+      });
+
     }
 
+    // MARCA COMO VENDIDO
     const updated = await prisma.ticket.update({
-      where: { id: ticket.id },
+      where: {
+        id: ticket.id
+      },
+
       data: {
         isSold: true,
         userId: req.userId
@@ -126,15 +268,23 @@ export const buyTicket = async (req, res) => {
     res.json(updated);
 
   } catch {
-    res.status(500).json({ error: "Erro ao comprar número" });
+
+    res.status(500).json({
+      error: "Erro ao comprar número"
+    });
+
   }
 };
 
-// GANHADOR DO SORTEIO
+
+// SORTEAR GANHADOR
 export const drawWinner = async (req, res) => {
+
   try {
+
     const { id } = req.params;
 
+    // PEGA APENAS VENDIDOS
     const tickets = await prisma.ticket.findMany({
       where: {
         rifaId: Number(id),
@@ -143,24 +293,45 @@ export const drawWinner = async (req, res) => {
     });
 
     if (tickets.length === 0) {
-      return res.status(400).json({ error: "Sem participantes" });
+
+      return res.status(400).json({
+        error: "Sem participantes"
+      });
+
     }
 
+    // ESCOLHE ALEATÓRIO
     const winner =
-      tickets[Math.floor(Math.random() * tickets.length)];
+      tickets[
+        Math.floor(
+          Math.random() * tickets.length
+        )
+      ];
 
-    // 🔥 SALVA O GANHADOR
+    // SALVA GANHADOR
     await prisma.rifa.update({
-      where: { id: Number(id) },
+      where: {
+        id: Number(id)
+      },
+
       data: {
         winnerId: winner.userId
       }
     });
 
-    res.json(winner);
+    res.json({
+      message: "Sorteio realizado!",
+
+      winner
+    });
 
   } catch (error) {
+
     console.log(error);
-    res.status(500).json({ error: "Erro ao sortear" });
+
+    res.status(500).json({
+      error: "Erro ao sortear"
+    });
+
   }
 };
