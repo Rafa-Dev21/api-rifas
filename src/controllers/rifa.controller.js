@@ -71,7 +71,15 @@ export const getRifas = async (req, res) => {
 
     const rifas = await prisma.rifa.findMany({
       include: {
-        tickets: true
+        tickets: true,
+
+        winner: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        }
       }
     });
 
